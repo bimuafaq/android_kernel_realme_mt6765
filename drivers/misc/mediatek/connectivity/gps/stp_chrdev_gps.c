@@ -928,6 +928,7 @@ void mtk_wcn_stpgps_drv_exit(void)
 EXPORT_SYMBOL(mtk_wcn_stpgps_drv_exit);
 
 /*****************************************************************************/
+#ifndef MTK_WCN_REMOVE_KERNEL_MODULE
 static int __init gps_mod_init(void)
 {
 	int ret = 0;
@@ -956,4 +957,5 @@ static void __exit gps_mod_exit(void)
 
 module_init(gps_mod_init);
 module_exit(gps_mod_exit);
+#endif
 
