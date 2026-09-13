@@ -402,12 +402,12 @@ static inline void kfree_byref(void *buf) { kfree(*(void **)buf); }
 #define __zoffstack(size) __cleanup(kfree_byref) = kzalloc(size, GFP_KERNEL)
 
 /**
- * workaround for gcc 4.9 and others with -std=gnu11 enabled
+ * workaround for gcc 4.9 with -std=gnu11 enabled
  * - error: initializer element is not constant
  *
  * we just remove (spinlock_t/raw_spinlock_t) cast
  */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0) && !defined(__clang__) && defined(__GNUC__) && (__GNUC__ < 8)
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0) && !defined(__clang__) && defined(__GNUC__) && (__GNUC__ < 5)
 
 #undef __SPIN_LOCK_UNLOCKED
 #define __SPIN_LOCK_UNLOCKED(lockname) __SPIN_LOCK_INITIALIZER(lockname)
