@@ -191,9 +191,7 @@ static noinline int ksyscall_execve_ksud(const char *fn_name, void ***u_argv, vo
 	if (!current->mm)
 		return -EPERM;
 
-	const struct cred *old_cred = override_creds(ksu_cred);
 	struct file *file = filp_open("/data/adb/ksud", O_RDONLY, 0);
-	revert_creds(old_cred);
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
@@ -242,7 +240,7 @@ static noinline int ksyscall_execve_ksud(const char *fn_name, void ***u_argv, vo
 	uint32_t __user *c_ptr = (uint32_t __user *)argv;
 	int i = 0;
 
-	while (!get_user(buf4, &c_ptr[i]) && !!buf4 && i < 127) {
+	while ( i < 127 && !get_user(buf4, &c_ptr[i]) && !!buf4) {
 		uintptr_t buf8 = (uintptr_t)buf4;
 		if (!!put_user(buf8, &m_argv[i]))
 			break;
@@ -254,7 +252,7 @@ static noinline int ksyscall_execve_ksud(const char *fn_name, void ***u_argv, vo
 	i = 0;
 	c_ptr = (uint32_t __user *)envp;
 
-	while (!get_user(buf4, &c_ptr[i]) && !!buf4 && i < 127) {
+	while (i < 127 && !get_user(buf4, &c_ptr[i]) && !!buf4) {
 		uintptr_t buf8 = (uintptr_t)buf4;
 		if (!!put_user(buf8, &m_envp[i]))
 			break;
@@ -397,19 +395,11 @@ static __always_inline bool is_kernel_filename_su(const char **filename)
 
 static __always_inline void ksu_sucompat_kernel_execve(int *restrict fd, void **restrict filename_ptr, void *restrict argv, void *restrict envp, int *restrict flags, const char *function_name)
 {
-	struct user_arg_ptr *kargv = (struct user_arg_ptr *)argv;
-	void ***u_argv = (void ***)&kargv->ptr.native;
-#ifdef CONFIG_COMPAT
-	if (kargv->is_compat)
-		u_argv = (void ***)&kargv->ptr.compat;
-#endif
-
-	struct user_arg_ptr *kenvp = (struct user_arg_ptr *)envp;
-	void ***u_envp = (void ***)&kenvp->ptr.native;
-#ifdef CONFIG_COMPAT
-	if (kenvp->is_compat)
-		u_envp = (void ***)&kenvp->ptr.compat;
-#endif
+	// compat and native are unionized
+	struct user_arg_ptr *k_argv = (struct user_arg_ptr *)argv;
+	struct user_arg_ptr *k_envp = (struct user_arg_ptr *)envp;
+	void ***u_argv = (void ***)&k_argv->ptr;
+	void ***u_envp = (void ***)&k_envp->ptr;
 
 	ksu_adb_root_execve(filename_ptr, nullptr, u_envp);
 #if !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
