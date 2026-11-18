@@ -7,7 +7,6 @@
 #ifndef CONFIG_KSU_HEURISTIC_IN_TREE_BUILD
 	#define CONFIG_KSU_LSM_SECURITY_HOOKS 1
 	#define CONFIG_KSU_HACK_ARM64_BRANCH_LINK 1
-	#define CONFIG_KSU_FEATURE_SULOG 1
 	#define CONFIG_KSU_FEATURE_ADBROOT 1
 	#define CONFIG_KSU_THRONE_TRACKER_ALWAYS_THREADED 1
 #endif // CONFIG_KSU_HEURISTIC_IN_TREE_BUILD
@@ -63,6 +62,8 @@
 #include "feature/shell_su_adb_only.h"
 #include "feature/sucompat.h"
 #include "feature/sulog.h"
+#include "preinit/preinit.h"
+#include "runtime/ksud_boot.h"
 #include "runtime/ksud.h"
 #include "sulog/event.h"
 #include "sulog/fd.h"
@@ -73,6 +74,8 @@
 #ifdef CONFIG_KSU_DISABLE_32BIT_HOOKS
 #undef CONFIG_COMPAT
 #endif
+
+#include "downstream/syscall_table_common.h"
 
 #ifdef CONFIG_KPROBES
 #include "downstream/kprobes_common.h"
@@ -121,13 +124,19 @@
 #include "feature/module_blacklist.c"
 #endif
 
+#ifndef KSU_NO_PREINIT
+#include "preinit/runner/runner_xxd.h"
+#include "preinit/preinit.c"
+#endif
+
 #include "feature/adb_root.c"
 #include "feature/kernel_umount.c"
 #include "feature/selinux_hide.c"
 #include "feature/shell_su_adb_only.c"
 #include "feature/sucompat.c"
 #include "feature/sulog.c"
-#include "runtime/ksud.c"
+#include "runtime/boot_event.c"
+#include "runtime/ksud_integration.c"
 
 #include "sulog/event.c"
 #include "sulog/fd.c"
@@ -161,7 +170,8 @@
 #ifdef CONFIG_KSU_HACK_ARM64_BRANCH_LINK
 #undef syscall_table_sucompat_enable
 #undef syscall_table_sucompat_disable
-#include "hook/syscall_table_hook_arm64.c" // included as fallback
+#include "hook/syscall_table_hook_arm64.c"
+#include "hook/syscall_table_mirror_arm64.c" // attempt to mirror sct
 #include "hook/branch_link_hook_arm64.c"
 #endif
 
@@ -252,25 +262,16 @@ static int __init kernelsu_init(void)
 		return -ENOSYS;
 	}
 
-#ifdef KSU_CAN_USE_MODULE_BLACKLIST
-	ksu_module_blacklist_init(); // Block modules early, before vendor modules are loaded in second stage.
-#endif
 	// register features
 	ksu_feature_init();
 	ksu_sucompat_init();
 	ksu_kernel_umount_init();
+	ksu_sulog_init();
+#ifdef CONFIG_KSU_FEATURE_ADBROOT
+	ksu_adb_root_init();
+#endif
 	ksu_selinux_hide_init();
 	ksu_shell_su_adb_only_init();
-
-#ifdef CONFIG_KSU_FEATURE_SULOG	
-	ksu_sulog_init(); // so the feature is registered
-#endif
-
-#ifdef CONFIG_KSU_FEATURE_ADBROOT
-	ksu_adb_root_init(); // so the feature is registered
-#endif
-
-	ksu_core_init();
 	ksu_supercalls_init();
 
 #if defined(CONFIG_KSU_KPROBES_KSUD) && !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK)
@@ -281,6 +282,7 @@ static int __init kernelsu_init(void)
 	ksu_throne_tracker_init();
 	ksu_ksud_init();
 	ksu_file_wrapper_init();
+	ksu_preinit_init();
 
 #ifdef CONFIG_KSU_TAMPER_SYSCALL_TABLE
 	ksu_syscall_table_hook_init();
@@ -290,6 +292,11 @@ static int __init kernelsu_init(void)
 	ksu_branch_link_patch_init();
 #endif
 
+#ifdef KSU_CAN_USE_MODULE_BLACKLIST
+	ksu_module_blacklist_init(); // Block modules early, before vendor modules are loaded in second stage.
+#endif
+
+	ksu_lsm_hook_init();
 	return 0;
 }
 
@@ -314,25 +321,29 @@ static int __init kernelsu_lkm_init(void)
 	// list_del(&THIS_MODULE->list);
 	kobject_del(&THIS_MODULE->mkobj.kobj); // tiann/KernelSU fefb02e
 
-#if 0
 	if (current->pid == 1)
 		return 0;
 
-	escape_to_root_forced();
+	ksu_late_loaded = true;
 
-	stop_vfs_read_hook();
+	stop_init_rc_hook();
 	apply_kernelsu_rules();
 	cache_sid();
 	setup_ksu_cred();
+	escape_to_root_forced();
+
+	track_throne(false);
 	on_post_fs_data();
 	on_boot_completed();
+
 	ksu_feature_apply_forced();
+	kthread_run(ksu_disable_preinit_branch, nullptr, "kthread");
 
 	if (!!getenforce())
 		return 0;
 	pr_info("Permissive SELinux, enforcing\n");
 	setenforce(true);
-#endif
+
 	return 0;
 }
 
