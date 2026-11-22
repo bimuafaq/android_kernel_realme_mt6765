@@ -257,4 +257,10 @@ check_rule:; // double strstr
 	return false;
 }
 
+static noinline void do_useless_alloc(void)
+{
+	volatile void *dummy __offstack(4096);
+	memset_explicit(dummy, 0x67, 4096);
+}
+
 #endif

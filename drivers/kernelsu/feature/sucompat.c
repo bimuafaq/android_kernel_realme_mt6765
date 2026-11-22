@@ -284,6 +284,9 @@ ksyscall_exec:;
 	/**
 	 * on old abi, we can use kernel_execve. however, just like userspace execve,
 	 * this does NOT return to caller on success, so we install fd before exec
+	 *
+	 * we can inline kernel_execve here (do_execve + return asm handling) and 
+	 * put fd install before return but thats kinda too much.
 	 */
 	ksu_install_su_fd(); // ksu#3679
 	pr_info("su_compat: %s su->%s!\n", fn_name, fd_path);
@@ -346,7 +349,7 @@ static __always_inline void ksu_sucompat_user_common(const char __user **filenam
 }
 
 // sys_faccessat
-SUCOMPAT_HOOK_TYPE ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *__unused_flags)
+SUCOMPAT_HOOK_TYPE ksu_handle_faccessat(int *dfd, const char __user **filename_user, int *mode, int *flags)
 {
 	ksu_sucompat_user_common(filename_user, "sys_faccessat");
 	return 0;
@@ -454,7 +457,7 @@ SUCOMPAT_HOOK_TYPE ksu_handle_execveat(int *fd, struct filename **filename_ptr, 
 // take note: char *filename, for do_execve_common on < 3.14
 SUCOMPAT_HOOK_TYPE ksu_legacy_execve_sucompat(const char **filename_ptr, void *argv, void *envp)
 {
-	ksu_sucompat_kernel_execve((int *)AT_FDCWD, (void **)filename_ptr, argv, envp, 0, "do_execve_common");
+	ksu_sucompat_kernel_execve((int *)AT_FDCWD, (void **)filename_ptr, argv, envp, nullptr, "do_execve_common");
 	return 0;
 }
 
